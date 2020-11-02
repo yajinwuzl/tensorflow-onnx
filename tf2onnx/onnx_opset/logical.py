@@ -10,6 +10,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import logging
+from tf2onnx import constants
 
 from onnx import TensorProto
 from tf2onnx import utils
@@ -91,6 +92,11 @@ class Equal:
 
     @classmethod
     def version_11(cls, ctx, node, **kwargs):
+        dtype = ctx.get_dtype(node.input[0])
+        if dtype == TensorProto.STRING and node.type == "Equal":
+            node.type = "StringEqual"
+            node.domain = constants.STRING_OPS_DOMAIN
+            return
         # starting with opset-11, equal supports all types (but both operands must be of the same type)
         _add_cast_to_same_type_to_inputs(ctx, node)
         need_not = node.type == "NotEqual"
