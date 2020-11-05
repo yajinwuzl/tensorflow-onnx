@@ -2,6 +2,14 @@
 
 steps:
 - bash: |
+    env
+    echo "python is at"
+    which python
+    echo "pip is at"
+    which pip
+  displayName: 'Display Environment Variables pre-setup'
+
+- bash: |
     set -ex
     pip install pytest pytest-cov pytest-runner coverage graphviz requests pyyaml pillow pandas parameterized
     pip install $(CI_PIP_TF_NAME) $(CI_PIP_ONNX_NAME) $(CI_PIP_ONNX_BACKEND_NAME)
@@ -20,8 +28,8 @@ steps:
       pip install 'numpy>=1.18'
       pip install --index-url https://test.pypi.org/simple/ ort-nightly
     fi
-
     python setup.py install
+    pip install --index-url https://test.pypi.org/simple/ onnx==1.8.100
     pip freeze --all
   displayName: 'Setup Environment'
 
