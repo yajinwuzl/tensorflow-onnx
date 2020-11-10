@@ -63,6 +63,7 @@ class StringJoin:
     def version_1(cls, ctx, node, **kwargs):
         node.domain = constants.STRING_OPS_DOMAIN
         separator = node.get_attr_value("separator")
+        n = len(node.input)
         if separator is None:
             separator = b''
         separator_node = make_string_const(ctx, utils.make_name("separator"), np.array([separator], np.object))
@@ -79,5 +80,13 @@ class StringJoin:
                 inp = expand_node.output[0]
             unsqueeze_node = ctx.make_node("Unsqueeze", [inp], attr={'axes': [-1]})
             unsqueezes.append(unsqueeze_node.output[0])
-        stack_node = ctx.make_node("Concat", unsqueezes, attr={'axis': 0})
-        ctx.replace_inputs(node, [stack_node.output[0], separator_node.output[0]])
+        stack_node = ctx.make_node("Concat", unsqueezes, attr={'axis': -1})
+        shape_node = ctx.make_node("Shape", [stack_node.output[0]])
+        shape_node.domain = constants.STRING_OPS_DOMAIN
+        pads_const = ctx.make_const(utils.make_name("pad_const"), np.array([0, -1], dtype=np.int64))
+        shape_node_trimmed = ctx.make_node("Pad", [shape_node.output[0], pads_const.output[0]])
+        reshape_const = ctx.make_const(utils.make_name("reshape_const"), np.array([-1, n], dtype=np.int64))
+        reshape_node1 = ctx.make_node("Reshape", [stack_node.output[0], reshape_const.output[0]])
+        ctx.replace_inputs(node, [reshape_node1.output[0], separator_node.output[0]])
+        reshape_node2 = ctx.insert_new_node_on_output("Reshape", node.output[0], utils.make_name("reshape"))
+        ctx.replace_inputs(reshape_node2, [node.output[0], shape_node_trimmed.output[0]])
