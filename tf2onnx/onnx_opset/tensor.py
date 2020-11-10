@@ -1191,6 +1191,8 @@ class OneHot:
 class Shape:
     @classmethod
     def version_1(cls, ctx, node, **kwargs):
+        if ctx.get_dtype(node.input[0]) == TensorProto.STRING:
+            node.domain = constants.STRING_OPS_DOMAIN
         # out_type output = Shape(T input, @int32|int64 out_type), out_type by default int32
         # int64 output = Shape(T input)
         dtype = ctx.get_dtype(node.output[0])
@@ -1789,6 +1791,25 @@ class Unique:
             # FIXME: the indices in onnx are not the same as in tensorflow.
 
 
+@tf_op("SparseToDense")
+class SparseToDense:
+    @classmethod
+    def version_11(cls, ctx, node, **kwargs):
+        if ctx.get_dtype(node.output[0]) == TensorProto.STRING:
+            node.domain = constants.STRING_OPS_DOMAIN
+            return
+        sparse_indices, out_shape, sparse_vals, default_val = node.input
+        idx_shape = ctx.get_shape(sparse_indices)
+        val_shape = ctx.get_shape(sparse_vals)
+        val_is_scalar = val_shape is not None and val_shape[0] == 1
+        idx_is_scalar = idx_shape is not None and idx_shape[0] == 1
+        utils.make_sure(not val_is_scalar or idx_is_scalar, "SparseToDense not implemented yet for scalar values")
+
+        expand_node = ctx.make_node("Expand", [default_val, out_shape])
+        node.type = "ScatterND"
+        ctx.replace_inputs(node, [expand_node.output[0], sparse_indices, sparse_vals])
+
+
 @tf_op("DynamicPartition")
 class DynamicPartition:
     @classmethod
@@ -1827,9 +1848,9 @@ class DynamicStitch:
         index_shapes = [ctx.get_shape(inp) for inp in index_inputs]
         data_shapes = [ctx.get_shape(inp) for inp in data_inputs]
         utils.make_sure(all(s is not None and len(s) == 1 for s in index_shapes),
-                        "DynamicPartition only implemented for index tensors of rank 1")
-        utils.make_sure(all(s is not None and len(s) == 1 for s in data_shapes),
-                        "DynamicPartition only implemented for data tensors of rank 1")
+                        "DynamicStitch only implemented for index tensors of rank 1")
+        utils.make_sure(all(s is not None for s in data_shapes), "DynamicStitch requires data tensors of known rank")
+        data_rank = len(data_shapes[0])
         dtype = ctx.get_dtype(node.output[0])
         concat_indices = ctx.make_node("Concat", index_inputs, attr={'axis': 0})
         concat_indices_int64 = ctx.make_node("Cast", [concat_indices.output[0]], attr={"to": TensorProto.INT64})
@@ -1837,14 +1858,17 @@ class DynamicStitch:
         concat_data = ctx.make_node("Concat", data_inputs, attr={'axis': 0})
 
         data_shape = ctx.make_node("Shape", [concat_data.output[0]])
-        expanded_indices = ctx.make_node("Expand", [concat_indices_int64.output[0], data_shape.output[0]])
+        unsqueeze_axes = list(range(1, data_rank))
+        unsqueezed_indices = ctx.make_node("Unsqueeze", [concat_indices_int64.output[0]], attr={'axes': unsqueeze_axes})
+        expanded_indices = ctx.make_node("Expand", [unsqueezed_indices.output[0], data_shape.output[0]])
 
         max_index = ctx.make_node("ReduceMax", [concat_indices_int64.output[0]], attr={'axes': [0], 'keepdims': 1})
         const_one = ctx.make_const(utils.make_name('const_one'), np.array([1], np.int64))
         target_length = ctx.make_node("Add", [max_index.output[0], const_one.output[0]])
+        const_zero = ctx.make_const(utils.make_name('const_zero'), np.array([0], np.int64))
 
         zero_tensor = helper.make_tensor("value", dtype, dims=[1], vals=[0])
-        zeros_of_shape = ctx.make_node("ConstantOfShape", [target_length.output[0]], attr={"value": zero_tensor})
+        zeros_of_shape = ctx.make_node("ConstantOfShape", [data_shape.output[0]], attr={"value": zero_tensor})
 
         name = node.name
         outputs = node.output

@@ -17,6 +17,7 @@ import zipfile
 
 import requests
 from requests.adapters import HTTPAdapter
+from tensorflow.python.types.core import Tensor
 from urllib3.util.retry import Retry
 import numpy as np
 from google.protobuf import text_format
@@ -42,6 +43,7 @@ ONNX_TO_NUMPY_DTYPE = {
     onnx_pb.TensorProto.BOOL: np.bool,
     onnx_pb.TensorProto.COMPLEX64: np.complex64,
     onnx_pb.TensorProto.COMPLEX128: np.complex128,
+    onnx_pb.TensorProto.STRING: np.object,
 }
 
 #
@@ -112,7 +114,7 @@ def map_numpy_to_onnx_dtype(np_dtype):
     for onnx_dtype, numpy_dtype in ONNX_TO_NUMPY_DTYPE.items():
         if numpy_dtype == np_dtype:
             return onnx_dtype
-    raise ValueError("unsupported dtype " + np_dtype + " for mapping")
+    raise ValueError("unsupported dtype '%s' for mapping" % np_dtype)
 
 
 def map_onnx_to_numpy_type(onnx_type):

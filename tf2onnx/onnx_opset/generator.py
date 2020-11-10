@@ -15,6 +15,8 @@ import numpy as np
 from onnx import onnx_pb, numpy_helper
 from tf2onnx import utils
 from tf2onnx.handler import tf_op
+from tf2onnx import constants
+from onnx.onnx_pb import TensorProto
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +135,8 @@ class Fill:
     @classmethod
     def version_11(cls, ctx, node, **kwargs):
         # cls.version_7(ctx, node, **kwargs)
+        if ctx.get_dtype(node.output[0]) == TensorProto.STRING:
+            node.domain = constants.STRING_OPS_DOMAIN
         node.type = "Expand"
         ctx.replace_inputs(node, [node.input[1], node.input[0]])
         # cast shape to int64 if needed

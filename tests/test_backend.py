@@ -3311,6 +3311,19 @@ class BackendTests(Tf2OnnxBackendTestBase):
             return x_
         self._run_test_case(func, [_OUTPUT], {_INPUT: indices_val, _INPUT1: data_val})
 
+    def test_string_split(self):
+        data_val = np.array([b'Hello,world', b'2,3', b'hi,there', b'x,y,z'], dtype=np.object)
+        def func(data):
+            #split = tf.strings.split(data, ",")
+            #x = split.to_sparse()
+            indices, value, shape = tf.raw_ops.StringSplit(input=data, delimiter=",")
+            x = tf.SparseTensor(indices, value, shape)
+            x, _ = tf.sparse.fill_empty_rows(x, ".")
+            x = tf.sparse.to_dense(x, "?")
+            x_ = tf.identity(x, name=_TFOUTPUT)
+            return x_
+        self._run_test_case(func, [_OUTPUT], {_INPUT: data_val})
+
     @check_opset_min_version(10, "Conv2DBackpropInput")
     def test_Conv2DBackpropInput_const(self):
         input_sizes_val_ = np.array([1, 10, 10, 3], dtype=np.int32)

@@ -97,6 +97,10 @@ class Equal:
             node.type = "StringEqual"
             node.domain = constants.STRING_OPS_DOMAIN
             return
+        if dtype == TensorProto.STRING and node.type == "NotEqual":
+            node.type = "StringNotEqual"
+            node.domain = constants.STRING_OPS_DOMAIN
+            return
         # starting with opset-11, equal supports all types (but both operands must be of the same type)
         _add_cast_to_same_type_to_inputs(ctx, node)
         need_not = node.type == "NotEqual"
