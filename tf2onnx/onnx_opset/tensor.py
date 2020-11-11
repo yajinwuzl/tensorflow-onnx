@@ -367,9 +367,6 @@ class GatherV2:
     def version_1(cls, ctx, node, **kwargs):
         # for GatherV2 axis come as input
         node.type = "Gather"
-        if ctx.get_dtype(node.output[0]) == TensorProto.FLOAT and ctx.get_dtype(node.input[1]) == TensorProto.INT32:
-            node.domain = constants.STRING_OPS_DOMAIN
-            return
         axis = node.inputs[2].get_tensor_value()
         ctx.remove_input(node, node.input[2], 2)
         node.set_attr("axis", axis)
@@ -1194,8 +1191,8 @@ class OneHot:
 class Shape:
     @classmethod
     def version_1(cls, ctx, node, **kwargs):
-        if ctx.get_dtype(node.input[0]) == TensorProto.STRING:
-            node.domain = constants.STRING_OPS_DOMAIN
+        #if ctx.get_dtype(node.input[0]) == TensorProto.STRING:
+            #node.domain = constants.STRING_OPS_DOMAIN
         # out_type output = Shape(T input, @int32|int64 out_type), out_type by default int32
         # int64 output = Shape(T input)
         dtype = ctx.get_dtype(node.output[0])
