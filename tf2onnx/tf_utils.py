@@ -266,12 +266,12 @@ def compute_const_folding_using_tf(g, const_node_values, graph_outputs):
     logger.info("Computed %d values for constant folding", len(outputs_to_values))
     return outputs_to_values, outputs_to_dtypes
 
-def get_hash_table_info(graph_def):
+def get_hash_table_info(node_defs):
     """Return lists of the shared_names, key_dtypes, and value_dtypes of all hash tables declared in the graph_def"""
     names = []
     key_dtypes = []
     val_dtypes = []
-    for n in graph_def.node:
+    for n in node_defs:
         if n.op == "HashTableV2":
             if all(k in n.attr for k in ['shared_name', 'key_dtype', 'value_dtype']):
                 name = n.attr['shared_name'].s

@@ -1801,9 +1801,9 @@ class Unique:
 class SparseToDense:
     @classmethod
     def version_11(cls, ctx, node, **kwargs):
-        if ctx.get_dtype(node.output[0]) == TensorProto.STRING:
-            node.domain = constants.STRING_OPS_DOMAIN
-            return
+        # if ctx.get_dtype(node.output[0]) == TensorProto.STRING:
+        #     node.domain = constants.STRING_OPS_DOMAIN
+        #     return
         sparse_indices, out_shape, sparse_vals, default_val = node.input
         idx_shape = ctx.get_shape(sparse_indices)
         val_shape = ctx.get_shape(sparse_vals)

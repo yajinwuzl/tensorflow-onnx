@@ -158,7 +158,7 @@ class Tf2OnnxBackendTestBase(unittest.TestCase):
                 graph_def = freeze_session(sess,
                                            input_names=list(feed_dict.keys()),
                                            output_names=output_names_with_port)
-                table_names, key_dtypes, value_dtypes = get_hash_table_info(graph_def)
+                table_names, key_dtypes, value_dtypes = get_hash_table_info(graph_def.node)
                 initialized_tables = {}
                 for n, k_dtype, val_dtype in zip(table_names, key_dtypes, value_dtypes):
                     h = lookup_ops.hash_table_v2(k_dtype, val_dtype, shared_name=n)

@@ -304,14 +304,35 @@ def _from_saved_model_v2(model_path, input_names, output_names, tag, signature_d
         logger.warning(wrn_sig_1, valid_sigs[0])
         concrete_func = imported.signatures[valid_sigs[0]]
 
+    r2 = None
+    concrete_func.graph.external_captures
     inputs = [tensor.name for tensor in concrete_func.inputs if tensor.dtype != tf.dtypes.resource]
     outputs = [tensor.name for tensor in concrete_func.outputs if tensor.dtype != tf.dtypes.resource]
+    #res = tf.raw_ops.ReadVariableOp(resource=r2, dtype=tf.int64)
 
     # filter by user specified inputs/outputs
     if input_names:
         inputs = list(set(input_names) & set(inputs))
     if output_names:
         outputs = list(set(output_names) & set(outputs))
+
+    resource_to_placeholder = {}
+    if hasattr(concrete_func.graph, '_captures'):
+        for k, v in list(concrete_func.graph._captures.items()):
+            val_tensor, name_tensor = v
+            if val_tensor.dtype == tf.resource:
+                resource_to_placeholder[id(val_tensor)] = name_tensor.name
+                del concrete_func.graph._captures[k]
+
+    placeholder_to_shared_name = {}
+    var_names, var_dtypes = [], []
+    if hasattr(imported, 'variables'):
+        for v in imported.variables:
+            r = id(v.handle)
+            if r in resource_to_placeholder:
+                var_names.append(v._shared_name)
+                var_dtypes.append(v.dtype)
+                placeholder_to_shared_name[r] = v._shared_name
 
     try:
         frozen_graph = from_function(concrete_func, inputs, outputs, large_model)
@@ -320,7 +341,15 @@ def _from_saved_model_v2(model_path, input_names, output_names, tag, signature_d
             raise ValueError(err_large_model)
         raise e
 
-    table_names, key_dtypes, value_dtypes = get_hash_table_info(frozen_graph)
+    table_names, key_dtypes, value_dtypes = get_hash_table_info(frozen_graph.node)
+    placeholder_to_shared_name = {}
+    if hasattr(imported, '_table'):
+        n, k, v = get_hash_table_info(imported._table._create_resource.concrete_functions[0].function_def.node_def)
+        table_names.extend(n)
+        key_dtypes.extend(k)
+        value_dtypes.extend(v)
+        placeholder_to_shared_name[resource_to_placeholder[id(imported._table.resource_handle)]] = n[0]
+
     initialized_tables = {}
     for n, k_dtype, val_dtype in zip(table_names, key_dtypes, value_dtypes):
         h = lookup_ops.hash_table_v2(k_dtype, val_dtype, shared_name=n)
