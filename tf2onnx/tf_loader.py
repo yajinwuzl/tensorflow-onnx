@@ -15,7 +15,7 @@ import tensorflow as tf
 from tensorflow.python.ops import lookup_ops
 
 from tf2onnx import utils
-from tf2onnx.tf_utils import get_tf_version, tflist_to_onnx, get_hash_table_info
+from tf2onnx.tf_utils import get_tf_version, tflist_to_onnx, get_hash_table_info, replace_placeholders_with_resources, TfResourceInfo
 
 logger = logging.getLogger(__name__)
 
@@ -304,11 +304,8 @@ def _from_saved_model_v2(model_path, input_names, output_names, tag, signature_d
         logger.warning(wrn_sig_1, valid_sigs[0])
         concrete_func = imported.signatures[valid_sigs[0]]
 
-    r2 = None
-    concrete_func.graph.external_captures
     inputs = [tensor.name for tensor in concrete_func.inputs if tensor.dtype != tf.dtypes.resource]
     outputs = [tensor.name for tensor in concrete_func.outputs if tensor.dtype != tf.dtypes.resource]
-    #res = tf.raw_ops.ReadVariableOp(resource=r2, dtype=tf.int64)
 
     # filter by user specified inputs/outputs
     if input_names:
@@ -317,22 +314,16 @@ def _from_saved_model_v2(model_path, input_names, output_names, tag, signature_d
         outputs = list(set(output_names) & set(outputs))
 
     resource_to_placeholder = {}
-    if hasattr(concrete_func.graph, '_captures'):
+    if hasattr(concrete_func.graph, '_captures') and hasattr(concrete_func, '_captured_inputs'):
+        variable_handles = {id(v.handle) for v in concrete_func.graph.variables}
         for k, v in list(concrete_func.graph._captures.items()):
             val_tensor, name_tensor = v
-            if val_tensor.dtype == tf.resource:
-                resource_to_placeholder[id(val_tensor)] = name_tensor.name
+            if val_tensor.dtype == tf.resource and id(val_tensor) not in variable_handles:
+                resource_to_placeholder[id(val_tensor)] = name_tensor.name.split(':')[0]
                 del concrete_func.graph._captures[k]
-
-    placeholder_to_shared_name = {}
-    var_names, var_dtypes = [], []
-    if hasattr(imported, 'variables'):
-        for v in imported.variables:
-            r = id(v.handle)
-            if r in resource_to_placeholder:
-                var_names.append(v._shared_name)
-                var_dtypes.append(v.dtype)
-                placeholder_to_shared_name[r] = v._shared_name
+                for i in reversed(range(len(concrete_func._captured_inputs))):
+                    if concrete_func._captured_inputs[i] is val_tensor:
+                        concrete_func._captured_inputs.pop(i)
 
     try:
         frozen_graph = from_function(concrete_func, inputs, outputs, large_model)
@@ -341,23 +332,26 @@ def _from_saved_model_v2(model_path, input_names, output_names, tag, signature_d
             raise ValueError(err_large_model)
         raise e
 
-    table_names, key_dtypes, value_dtypes = get_hash_table_info(frozen_graph.node)
-    placeholder_to_shared_name = {}
+    hash_table_info = get_hash_table_info(frozen_graph.node)
+    placeholder_to_table_info = {}
     if hasattr(imported, '_table'):
-        n, k, v = get_hash_table_info(imported._table._create_resource.concrete_functions[0].function_def.node_def)
-        table_names.extend(n)
-        key_dtypes.extend(k)
-        value_dtypes.extend(v)
-        placeholder_to_shared_name[resource_to_placeholder[id(imported._table.resource_handle)]] = n[0]
+        initializer = imported._table._create_resource.concrete_functions[0].function_def
+        info = get_hash_table_info(initializer.node_def)
+        hash_table_info.extend(info)
+        table_handle = id(imported._table.resource_handle)
+        if table_handle in resource_to_placeholder:
+            placeholder_to_table_info[resource_to_placeholder[table_handle]] = info[0]
 
     initialized_tables = {}
-    for n, k_dtype, val_dtype in zip(table_names, key_dtypes, value_dtypes):
-        h = lookup_ops.hash_table_v2(k_dtype, val_dtype, shared_name=n)
+    for info in hash_table_info:
+        h = lookup_ops.hash_table_v2(info.key_dtype, info.value_dtype, shared_name=info.shared_name)
         try:
-            k, v = lookup_ops.lookup_table_export_v2(h, k_dtype, val_dtype)
-            initialized_tables[n] = (k.numpy(), v.numpy())
+            keys, vals = lookup_ops.lookup_table_export_v2(h, info.key_dtype, info.value_dtype)
+            initialized_tables[info.shared_name] = (keys.numpy(), vals.numpy())
         except Exception:  # pylint: disable=broad-except
-            logger.warning("Could not initialize table with shared_name = %r", n)
+            logger.warning("Could not initialize table with shared_name = %r", info.shared_name)
+
+    replace_placeholders_with_resources(frozen_graph.node, placeholder_to_table_info)
 
     return frozen_graph, inputs, outputs, concrete_func, imported, initialized_tables
 

@@ -266,20 +266,35 @@ def compute_const_folding_using_tf(g, const_node_values, graph_outputs):
     logger.info("Computed %d values for constant folding", len(outputs_to_values))
     return outputs_to_values, outputs_to_dtypes
 
+class TfResourceInfo:
+    def __init__(self, resource_type, **args):
+        self.resource_type = resource_type
+        self.__dict__.update(args)
+
 def get_hash_table_info(node_defs):
     """Return lists of the shared_names, key_dtypes, and value_dtypes of all hash tables declared in the graph_def"""
-    names = []
-    key_dtypes = []
-    val_dtypes = []
+    info = []
     for n in node_defs:
         if n.op == "HashTableV2":
             if all(k in n.attr for k in ['shared_name', 'key_dtype', 'value_dtype']):
                 name = n.attr['shared_name'].s
                 if name != b'':
-                    names.append(name)
-                    key_dtypes.append(n.attr['key_dtype'].type)
-                    val_dtypes.append(n.attr['value_dtype'].type)
-    return names, key_dtypes, val_dtypes
+                    info.append(TfResourceInfo('table', shared_name=name,
+                                               key_dtype=n.attr['key_dtype'].type,
+                                               value_dtype=n.attr['value_dtype'].type))
+    return info
+
+def replace_placeholders_with_resources(node_defs, placeholder_to_resource_info):
+    for n in node_defs:
+        if n.op == "Placeholder" and n.name in placeholder_to_resource_info:
+            info = placeholder_to_resource_info[n.name]
+            for a in list(n.attr):
+                del n.attr[a]
+            if info.resource_type == "table":
+                n.op = "HashTableV2"
+                n.attr['shared_name'].s = info.shared_name
+                n.attr['key_dtype'].type = info.key_dtype
+                n.attr['value_dtype'].type = info.value_dtype
 
 def tflist_to_onnx(g, shape_override, const_node_values=None):
     """
