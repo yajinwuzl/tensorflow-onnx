@@ -93,19 +93,15 @@ class Equal:
     @classmethod
     def version_11(cls, ctx, node, **kwargs):
         dtype = ctx.get_dtype(node.input[0])
-        if dtype == TensorProto.STRING and node.type == "Equal":
+        need_not = node.type == "NotEqual"
+        if dtype == TensorProto.STRING:
             node.type = "StringEqual"
             node.domain = constants.STRING_OPS_DOMAIN
-            return
-        if dtype == TensorProto.STRING and node.type == "NotEqual":
-            node.type = "StringNotEqual"
-            node.domain = constants.STRING_OPS_DOMAIN
-            return
-        # starting with opset-11, equal supports all types (but both operands must be of the same type)
-        _add_cast_to_same_type_to_inputs(ctx, node)
-        need_not = node.type == "NotEqual"
-        if need_not:
+        else:
+            # starting with opset-11, equal supports all types (but both operands must be of the same type)
             node.type = "Equal"
+            _add_cast_to_same_type_to_inputs(ctx, node)
+        if need_not:
             output_name = node.output[0]
             not_node = ctx.insert_new_node_on_output("Not", output_name, name=utils.make_name(node.name))
             ctx.copy_shape(output_name, not_node.output[0])

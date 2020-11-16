@@ -1,6 +1,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT license.
-""" tf2onnx mapping functions for onnx string domain. """
+""" tf2onnx mapping functions for string ops using custom ops domain. """
 import logging
 from onnx import TensorProto
 from tf2onnx import constants
@@ -13,14 +13,17 @@ from onnx.onnx_pb import TensorProto
 logger = logging.getLogger(__name__)
 
 @tf_op("StringSplit", domain=constants.STRING_OPS_DOMAIN)
-@tf_op("SparseFillEmptyRows", domain=constants.STRING_OPS_DOMAIN)
 class StringOps:
     @classmethod
     def version_1(cls, ctx, node, **kwargs):
         node.domain = constants.STRING_OPS_DOMAIN
+        skip_empty = node.get_attr_value('skip_empty', True)
         for a in list(node.attr.keys()):
             del node.attr[a]
-
+        unsqueeze_node = ctx.make_node("Unsqueeze", [node.input[1]], attr={'axes': [0]})
+        skip_empty_const = ctx.make_const(utils.make_name('skip_empty_const'), np.array([skip_empty], np.bool))
+        ctx.replace_inputs(node, [node.input[0], unsqueeze_node.output[0], skip_empty_const.output[0]])
+    
 @tf_op("StringToHashBucketFast", domain=constants.STRING_OPS_DOMAIN)
 class StringToHashBucketFast:
     @classmethod
@@ -63,7 +66,6 @@ class StringJoin:
     def version_1(cls, ctx, node, **kwargs):
         node.domain = constants.STRING_OPS_DOMAIN
         separator = node.get_attr_value("separator")
-        n = len(node.input)
         if separator is None:
             separator = b''
         separator_node = make_string_const(ctx, utils.make_name("separator"), np.array([separator], np.object))
@@ -72,22 +74,12 @@ class StringJoin:
         shape_node = None
         if 0 < len(inps_with_shapes) < len(node.input):
             shape_node = ctx.make_node("Shape", [inps_with_shapes[0]])
-            #shape_node.domain = constants.STRING_OPS_DOMAIN
         unsqueezes = []
         for inp in node.input:
             if ctx.get_shape(inp) == [] and shape_node is not None:
                 expand_node = ctx.make_node("Expand", [inp, shape_node.output[0]])
-                #expand_node.domain = constants.STRING_OPS_DOMAIN
                 inp = expand_node.output[0]
             unsqueeze_node = ctx.make_node("Unsqueeze", [inp], attr={'axes': [0]})
             unsqueezes.append(unsqueeze_node.output[0])
         stack_node = ctx.make_node("Concat", unsqueezes, attr={'axis': 0})
-        #shape_node = ctx.make_node("Shape", [stack_node.output[0]])
-        #shape_node.domain = constants.STRING_OPS_DOMAIN
-        #pads_const = ctx.make_const(utils.make_name("pad_const"), np.array([0, -1], dtype=np.int64))
-        #shape_node_trimmed = ctx.make_node("Pad", [shape_node.output[0], pads_const.output[0]])
-        #reshape_const = ctx.make_const(utils.make_name("reshape_const"), np.array([-1, n], dtype=np.int64))
-        #reshape_node1 = ctx.make_node("Reshape", [stack_node.output[0], reshape_const.output[0]])
         ctx.replace_inputs(node, [stack_node.output[0], separator_node.output[0], axis_node.output[0]])
-        #reshape_node2 = ctx.insert_new_node_on_output("Reshape", node.output[0], utils.make_name("reshape"))
-        #ctx.replace_inputs(reshape_node2, [node.output[0], shape_node_trimmed.output[0]])
